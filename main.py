@@ -1,6 +1,5 @@
 from dotenv import load_dotenv
 from pydantic import BaseModel
-from fastapi.middleware.cors import CORSMiddleware
 
 from vision_agents.plugins import getstream, gemini
 from vision_agents.core import Agent, AgentLauncher, Runner, User
@@ -9,7 +8,7 @@ load_dotenv()
 
 agent_configs = {}
 
-class JoinRequest(BaseModel):
+class JoinRequestData(BaseModel):
     id: str
     name: str
     image: str
@@ -20,14 +19,15 @@ class JoinRequest(BaseModel):
 async def create_agent(**kwargs) -> Agent:
     return Agent(
         agent_user = User(
-            id = "id",
-            name = "Agent"
+            id = "temp_id",
+            name = "temp_name"
         ),
         llm = gemini.Realtime(),
         edge = getstream.Edge()
     )
 
-async def join_call(agent, call_type, call_id, **kwargs):
+async def join_call(agent: Agent, call_type: str, call_id: str, **kwargs):
+    await agent.close()
     config = agent_configs.pop(call_id)
 
     mainAgent = Agent(
@@ -44,29 +44,36 @@ async def join_call(agent, call_type, call_id, **kwargs):
     call = await mainAgent.create_call(call_type, call_id)
 
     async with mainAgent.join(call):
-        await mainAgent.simple_response("Chào các thành viên trong cuộc họp, tóm tắt nhiệm vụ của cuộc họp và trách nhiệm của bạn trong cuộc họp. Cuối cùng yêu cầu người dùng đặt câu hỏi để bắt đầu cuộc trò chuyện.")
+        await mainAgent.simple_response(
+            """
+                The response language to the user should be determined by the instructions. Respond in the same language as specified in that section.
+                When joining a meeting, you need to greet the user, introduce yourself, and state the objective of the meeting.
+                The response style must be concise and direct. Do not provide tangential information unrelated to the question.
+                The information provided must be clearly verified and not fabricated. All information must come from reliable and official sources on the internet.
+            """
+        )
         await mainAgent.finish()
 
-runner = Runner(AgentLauncher(create_agent = create_agent, join_call = join_call))
-runner.fast_api.add_middleware(
-    CORSMiddleware,
-    allow_origins=["*"],
-    allow_methods=["*"],
-    allow_headers=["*"]
+runner = Runner(
+    AgentLauncher(
+        join_call = join_call,
+        max_sessions_per_call = 1,
+        create_agent = create_agent
+    )
 )
 
-@runner.fast_api.post("/custom/join")
-async def custom_join(body: JoinRequest):
-    call_id = body.call_id
+@runner.fast_api.post("/api/stream/agent/join")
+async def join(data: JoinRequestData):
+    call_id = data.call_id
 
     agent_configs[call_id] = {
-        "image": body.image,
-        "name": body.name,
-        "id": body.id,
-        "instructions": body.instructions
+        "image": data.image,
+        "name": data.name,
+        "id": data.id,
+        "instructions": data.instructions
     }
 
-    await runner._launcher.start_session(call_id = call_id, call_type = body.call_type)
+    await runner._launcher.start_session(call_id = call_id, call_type = data.call_type)
     return { "message": "Agent đang được kết nối với cuộc họp . . ." }
 
 if __name__ == "__main__":
