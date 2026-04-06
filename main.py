@@ -2,7 +2,8 @@ from dotenv import load_dotenv
 from pydantic import BaseModel
 
 from vision_agents.plugins import getstream, gemini
-from vision_agents.core import Agent, AgentLauncher, Runner, User
+from vision_agents.core import Agent, AgentLauncher, Runner, User, turn_detection
+from google.genai.types import EndSensitivity, RealtimeInputConfigDict, AutomaticActivityDetectionDict
 
 load_dotenv()
 
@@ -36,7 +37,15 @@ async def join_call(agent: Agent, call_type: str, call_id: str, **kwargs):
             name = config["name"],
             image = config["image"]
         ),
-        llm = gemini.Realtime(),
+        llm = gemini.Realtime(
+            config = {
+                "realtime_input_config": RealtimeInputConfigDict(
+                    automatic_activity_detection = AutomaticActivityDetectionDict(
+                        end_of_speech_sensitivity = EndSensitivity.END_SENSITIVITY_LOW
+                    )
+                )
+            }
+        ),
         edge = getstream.Edge(),
         instructions = config["instructions"]
     )
@@ -67,9 +76,9 @@ async def join(data: JoinRequestData):
     call_id = data.call_id
 
     agent_configs[call_id] = {
-        "image": data.image,
-        "name": data.name,
         "id": data.id,
+        "name": data.name,
+        "image": data.image,
         "instructions": data.instructions
     }
 
