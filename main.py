@@ -1,3 +1,4 @@
+import re
 import contextvars
 from dotenv import load_dotenv
 from pydantic import BaseModel
@@ -17,6 +18,15 @@ class JoinRequestData(BaseModel):
     call_type: str
     instructions: str
 
+def clean_markdown(text: str) -> str:
+    text = text.replace('`', '')
+    text = re.sub(r'#+', '', text)
+    text = re.sub(r'\*+', '', text)
+    text = re.sub(r'\n+', ' ', text)
+    text = re.sub(r'\n\s*[-*•]\s*', ', ', text)
+    
+    return text.strip()
+
 async def create_agent(**kwargs) -> Agent:
     config = current_call_config.get()
 
@@ -26,22 +36,26 @@ async def create_agent(**kwargs) -> Agent:
         name = "Warmup Agent"
         instructions = "You are a helpful assistant."
     else:
+        print(clean_markdown(config["instructions"]))
+
         id = config["id"]
         name = config["name"]
         image = config["image"]
-        
         instructions = f"""
-            {config["instructions"]}
+            ### SYSTEM PROTOCOL (MANDATORY) / CRITICAL RESPONSE RULES (VOICE CALL MODE):
+            1. You are engaging in a REAL-TIME VOICE CONVERSATION. You MUST speak naturally like a human on a phone call.
+            2. ABSOLUTELY NO MARKDOWN: Do not use asterisks (*), bolding (**), hashtags (#), bullet points, or numbered lists.
+            3. Use ONLY plain text with natural punctuation (commas, periods, question marks). 
+            4. If you need to list items or give examples, weave them naturally into your spoken sentences using transition words (e.g., "First...", "For example...").
+            5. Be conversational, concise, and direct. Break down long explanations into shorter, spoken-style responses.
 
-            LANGUAGE PROTOCOL:
+            ### USER PROMPT / INSTRUCTIONS:
+            {clean_markdown(config["instructions"])}
+
+            ### LANGUAGE PROTOCOL:
             1. Initially, speak in the same language as these instructions.
             2. Maintain this language unless the user explicitly asks to switch.
             3. If a switch is requested, use the new language for all subsequent interactions.
-
-            RESPONSE RULES:
-            1. THIS IS IMPORTANTEST RULE - Never use markdown, bold, italic, bullet points, numbered lists, or any text formatting. Only use formatting that is compatible with text-to-speech engines.
-            2. Be concise and direct. Do not provide tangential information.
-            3. All information must be verified and from reliable sources.
         """
 
     llm = gemini.Realtime(model = "gemini-3.1-flash-live-preview")
@@ -62,6 +76,7 @@ async def join_call(agent: Agent, call_type: str, call_id: str, **kwargs):
     call = await agent.create_call(call_type, call_id)
 
     async with agent.join(call):
+        await agent.simple_response("Greet the user.")
         await agent.finish()
 
 launcher = AgentLauncher(
@@ -88,30 +103,3 @@ async def join(data: JoinRequestData):
 
 if __name__ == "__main__":
     runner.cli()
-
-# from dotenv import load_dotenv
-
-# from vision_agents.core import Agent, AgentLauncher, User, Runner
-# from vision_agents.plugins import getstream, gemini
-
-# load_dotenv()
-
-
-# async def create_agent(**kwargs) -> Agent:
-#     return Agent(
-#         edge=getstream.Edge(),
-#         agent_user=User(name="Assistant", id="agent"),
-#         instructions="You're a helpful voice assistant. Be concise.",
-#         llm=gemini.Realtime(),
-#     )
-
-
-# async def join_call(agent: Agent, call_type: str, call_id: str, **kwargs) -> None:
-#     call = await agent.create_call(call_type, call_id)
-#     async with agent.join(call):
-#         await agent.simple_response("Greet the user")
-#         await agent.finish()
-
-
-# if __name__ == "__main__":
-#     Runner(AgentLauncher(create_agent=create_agent, join_call=join_call)).cli()
