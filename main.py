@@ -1,4 +1,5 @@
 import re
+import asyncio
 import contextvars
 from dotenv import load_dotenv
 from pydantic import BaseModel
@@ -19,12 +20,10 @@ class JoinRequestData(BaseModel):
     instructions: str
 
 def clean_markdown(text: str) -> str:
-    text = text.replace('`', '')
-    text = re.sub(r'#+', '', text)
-    text = re.sub(r'\*+', '', text)
-    text = re.sub(r'\n+', ' ', text)
-    text = re.sub(r'\n\s*[-*•]\s*', ', ', text)
-    
+    text = re.sub(r'```.*?```', '', text, flags = re.DOTALL)
+    text = re.sub(r'[*_`#\->]', ' ', text)
+    text = " ".join(text.split())
+
     return text.strip()
 
 async def create_agent(**kwargs) -> Agent:
@@ -47,15 +46,13 @@ async def create_agent(**kwargs) -> Agent:
             2. ABSOLUTELY NO MARKDOWN: Do not use asterisks (*), bolding (**), hashtags (#), bullet points, or numbered lists.
             3. Use ONLY plain text with natural punctuation (commas, periods, question marks). 
             4. If you need to list items or give examples, weave them naturally into your spoken sentences using transition words (e.g., "First...", "For example...").
-            5. Be conversational, concise, and direct. Break down long explanations into shorter, spoken-style responses.
+            5. Initially, speak in the same language as these instructions.
+            6. Maintain this language unless the user explicitly asks to switch.
+            7. If a switch is requested, use the new language for all subsequent interactions.
+            8. Be conversational, concise, and direct. Break down long explanations into shorter, spoken-style responses.
 
             ### USER PROMPT / INSTRUCTIONS:
             {clean_markdown(config["instructions"])}
-
-            ### LANGUAGE PROTOCOL:
-            1. Initially, speak in the same language as these instructions.
-            2. Maintain this language unless the user explicitly asks to switch.
-            3. If a switch is requested, use the new language for all subsequent interactions.
         """
 
     llm = gemini.Realtime(model = "gemini-3.1-flash-live-preview")
@@ -72,12 +69,11 @@ async def create_agent(**kwargs) -> Agent:
     )
 
 async def join_call(agent: Agent, call_type: str, call_id: str, **kwargs):
-    await agent.authenticate()
     call = await agent.create_call(call_type, call_id)
 
-    async with agent.join(call):
+    async with agent.join(call, participant_wait_timeout = 0):
         await agent.simple_response("Greet the user.")
-        await agent.finish()
+        await agent.finish()        
 
 launcher = AgentLauncher(
     join_call = join_call,
