@@ -1,11 +1,11 @@
 import re
-import asyncio
 import contextvars
 from dotenv import load_dotenv
 from pydantic import BaseModel
 
 from vision_agents.plugins import getstream, gemini
 from vision_agents.core import Agent, AgentLauncher, Runner, User
+from vision_agents.core.llm.events import RealtimeDisconnectedEvent, RealtimeErrorEvent
 
 load_dotenv()
 
@@ -71,9 +71,19 @@ async def create_agent(**kwargs) -> Agent:
 async def join_call(agent: Agent, call_type: str, call_id: str, **kwargs):
     call = await agent.create_call(call_type, call_id)
 
-    async with agent.join(call, participant_wait_timeout = 0):
+    @agent.events.subscribe
+    async def on_disconnect(event: RealtimeDisconnectedEvent):
+        if not event.was_clean:
+            await agent.close()
+
+    @agent.events.subscribe
+    async def on_error(event: RealtimeErrorEvent):
+        if not event.is_recoverable:
+            await agent.close()
+
+    async with agent.join(call, participant_wait_timeout=0):
         await agent.simple_response("Greet the user.")
-        await agent.finish()        
+        await agent.finish()
 
 launcher = AgentLauncher(
     join_call = join_call,
